@@ -1,9 +1,10 @@
 __author__ = 'yablokoff'
 
 from  copy import copy
+import numpy
 from scipy.sparse import lil_matrix
 
-N = 5
+N = 2
 
 class TripleRow:
      def __init__(self, first, second, third):
@@ -60,53 +61,71 @@ def generate_op_matrix(triple, two, n):
             matrix[forth_step] = matrix[third_step]
         else:
             matrix[third_step] = matrix[forth_step]
-    free_cells = []
-    if matrix[third_step] == -1:
-        free_cells.append(set([third_step, forth_step]))
-    return matrix, free_cells
+    return matrix
 
-def overlay_matrices(x_matrix, x_free_cells, y_matrix, y_free_cells):
-    # y - "big" matrix
-    def mark_cells_with_value(cells_set, value):
-        for cell in cells_set:
-            new_matrix[cell] = value
-
-    new_matrix = copy(y_matrix)
-    x_inds = zip(list(x_matrix.nonzero()[0]), list(x_matrix.nonzero()[1]))
-    for x_cell in x_inds:
-        if x_matrix[x_cell] < 0 or new_matrix[x_cell] < 0:
-            # later
-            continue
-        if x_matrix[x_cell] == new_matrix[x_cell]:
-            # coincide
-            continue
-        if x_matrix[x_cell] != new_matrix[x_cell]:
-            # don't coincide
-            return False
-        if new_matrix[x_cell] == 0:
-            # add rule to operation
-            new_matrix[x_cell] = x_matrix[x_cell]
-    new_free_cells = copy(y_free_cells)
-    for x_free_cells_set in x_free_cells:
-        # should be single actually
-        for num, y_free_cells_set in enumerate(y_free_cells):
-            if y_free_cells_set.intersection(x_free_cells_set):
-                new_free_cells[num] = y_free_cells_set.union(x_free_cells_set)
-            else:
-                new_free_cells.append(x_free_cells_set)
-    # here we should do more complicated merging processes
-    for num, free_cells_set in enumerate(new_free_cells[:]):
-        non_zero_elem = 0
-        for free_cell in free_cells_set:
-            if x_matrix[free_cell] != 0:
-                if not non_zero_elem:
-                    non_zero_elem = x_matrix[free_cell]
-                elif x_matrix[free_cell] != non_zero_elem:
+def overlay_well(x_matrix, y_matrix):
+    def overlay_of_z(z_inds_set, matrix):
+        non_zero_value = 0
+        for z_index in z_inds_set:
+            if matrix[z_index] > 0:
+                if non_zero_value == 0:
+                    non_zero_value = matrix[z_index]
+                elif matrix[z_index] != non_zero_value:
                     return False
-        if non_zero_elem:
-            mark_cells_with_value(free_cells_set, non_zero_elem)
-        del new_free_cells[num]
-    return new_matrix, new_free_cells
+                else:
+                    continue
+        return True
+
+    if not x_matrix or not y_matrix:
+        return False
+    x_inds = zip(list(x_matrix.nonzero()[0]), list(x_matrix.nonzero()[1]))
+    y_inds = zip(list(y_matrix.nonzero()[0]), list(y_matrix.nonzero()[1]))
+    for index in x_inds:
+        if x_matrix[index] < 0:
+            continue
+        if x_matrix[index] != y_matrix[index] and y_matrix[index] > 0:
+            return False
+    for index in y_inds:
+        if y_matrix[index] < 0:
+            continue
+        if y_matrix[index] != x_matrix[index] and x_matrix[index] > 0:
+            return False
+
+    x_z_inds = filter(lambda cell: x_matrix[cell] < 0, x_inds)
+    if len(x_z_inds) == 1:
+        x_z_inds = []
+    y_z_inds = filter(lambda cell: y_matrix[cell] < 0, y_inds)
+    if len(y_z_inds) == 1:
+        y_z_inds = []
+    if set(x_z_inds).intersection(y_z_inds):
+        z_inds_set = set(x_z_inds + y_z_inds)
+        if not overlay_of_z(z_inds_set, x_matrix):
+            return False
+        if not overlay_of_z(z_inds_set, x_matrix):
+            return False
+    else:
+        if not overlay_of_z(set(x_z_inds), y_matrix):
+            return False
+        if not overlay_of_z(set(y_z_inds), x_matrix):
+            return False
+    return True
+
+def generate_matrix_table(n, triples):
+    matrix_table = numpy.zeros(shape=(n**2, n**3, n**3), dtype=int)
+    offset = n**2
+    for j_big, triple_big in enumerate(triples):
+        for i_big, (two_big, op_matrix_big) in enumerate(triple_big.values):
+            if not op_matrix_big:
+                continue
+            for j, triple in enumerate(triples):
+                res = 0
+                col_offset = offset-1
+                for i, (two, op_matrix) in enumerate(triple.values):
+                    bit = 1 if overlay_well(op_matrix_big, op_matrix) else 0
+                    res |= bit<<col_offset
+                    col_offset -= 1
+                matrix_table[i_big, j_big, j] = res
+    return matrix_table
 
 
 def main():
@@ -115,10 +134,10 @@ def main():
     for triple in triples:
         for two in twos:
             op_matrix = generate_op_matrix(triple, two, N)
-            if op_matrix:
-                triple.values.append( (two,op_matrix) )
-    for t in triples:
-        print t.triple, t.values
+            triple.values.append( (two,op_matrix) )
+#    for t in triples:
+#        print t.triple, t.values
+    matrix_table = generate_matrix_table(N, triples)
 
 if __name__ == "__main__":
     main()
